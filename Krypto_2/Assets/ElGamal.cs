@@ -19,6 +19,8 @@ public class ElGamal : MonoBehaviour
     BigInteger hValue;
     BigInteger pValue;
 
+    BigInteger c11, c22;
+
     public TMP_Text path;
     public TMP_InputField G;
     public TMP_InputField H;
@@ -37,15 +39,20 @@ public class ElGamal : MonoBehaviour
         H.text = hValue.ToString();
         A.text = aValue.ToString();
         P.text = pValue.ToString();
-        
-        byte[] randomNumber = new byte[8];
 
-        using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
+        for (int i = 0; i < 50; i++)
         {
-            rng.GetBytes(randomNumber);
-        }
+            byte[] randomNumber = new byte[8];
 
-        SingleBlockEncrypting(randomNumber);
+            using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
+            {
+                rng.GetBytes(randomNumber);
+            }
+
+            SingleBlockEncrypting(randomNumber);
+            SingleBlockDecrypting(); 
+        }
+        
     }
 
     BigInteger RandomBigIntInRange(BigInteger a, BigInteger b)
@@ -173,6 +180,45 @@ public class ElGamal : MonoBehaviour
         return true;
     }
 
+    BigInteger ModInverse(BigInteger a, BigInteger m)
+    {
+        BigInteger g = BigInteger.GreatestCommonDivisor(a, m);
+        if (g != 1)
+            throw new ArgumentException("Modular inverse does not exist");
+
+        BigInteger x;
+        BigInteger y;
+        ExtendedEuclidean(a, m, out x, out y);
+
+        return (x % m + m) % m;
+    }
+
+    void ExtendedEuclidean(BigInteger a, BigInteger b, out BigInteger x, out BigInteger y)
+    {
+        if (b == 0)
+        {
+            x = 1;
+            y = 0;
+            return;
+        }
+
+        BigInteger x1;
+        BigInteger y1;
+        ExtendedEuclidean(b, a % b, out x1, out y1);
+
+        x = y1;
+        y = x1 - (a / b) * y1;
+    }
+    
+    BigInteger InvModDecryption(BigInteger x, BigInteger a, BigInteger n, BigInteger b)
+    {
+        BigInteger a_to_n_mod_b = BigInteger.ModPow(a, n, b);
+        BigInteger inverse = ModInverse(a_to_n_mod_b, b);
+        BigInteger result = (x * inverse) % b;
+    
+        return result;
+    }
+    
     public void Encrypt()
     {
         /*if (key1Field.text.Length == 0)
@@ -214,6 +260,46 @@ public class ElGamal : MonoBehaviour
         key3Field.text = key3Field.text.PadRight(64, '3');*/
     }
 
+    byte[] PadBigIntegerToFixedLengthByteArray(BigInteger value, int length)
+    {
+        byte[] bytes = value.ToByteArray();
+        byte[] result = new byte[length];
+
+        for (int i = 0; i < bytes.Length && i < length; i++)
+        {
+            result[i] = bytes[i];
+        }
+
+        return result;
+    }
+    
+    public static byte[] PadToBlockSize(byte[] input, int blockSize)
+    {
+        int paddingSize = blockSize - (input.Length % blockSize);
+        byte[] padding = new byte[paddingSize];
+        byte[] result = new byte[input.Length + paddingSize];
+
+        Array.Copy(input, 0, result, 0, input.Length);
+        Array.Copy(padding, 0, result, input.Length, paddingSize);
+
+        return result;
+    }
+
+    public static byte[] UnpadFromBlockSize(byte[] input)
+    {
+        int lastNonZeroIndex = input.Length - 1;
+
+        while (input[lastNonZeroIndex] == 0 && lastNonZeroIndex > 0)
+        {
+            lastNonZeroIndex--;
+        }
+
+        byte[] result = new byte[lastNonZeroIndex + 1];
+        Array.Copy(input, 0, result, 0, lastNonZeroIndex + 1);
+
+        return result;
+    }
+    
     byte[] SingleBlockEncrypting(byte[] block)
     {
         BigInteger m = ConvertBlockToNumber(block);
@@ -221,10 +307,22 @@ public class ElGamal : MonoBehaviour
         BigInteger c1, c2;
 
         c1 = ModularPow(gValue, r, pValue);
-        c2 = m * ModularPow(hValue, r, pValue);
+        c2 = ModularPow(hValue, r, pValue);
+        c2 = (m * c2) % pValue;
         
-        Debug.Log(c1);
-        Debug.Log(c2);
+        c11 = c1;
+        c22 = c2;
+        
+        //Debug.Log(result.Length);
+        return Array.Empty<byte>();
+    }
+
+    byte[] SingleBlockDecrypting()
+    {
+        BigInteger result = InvModDecryption(c22, c11, aValue, pValue);
+        
+        
+        
         
         return Array.Empty<byte>();
     }
