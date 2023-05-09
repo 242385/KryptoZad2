@@ -7,19 +7,19 @@ using System.IO;
 using System.Text;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Assertions;
 using Random = System.Random;
 
 public class ElGamal : MonoBehaviour
 {
     byte[] _fileBytes;
-    byte[][] _blockArray;
+    byte[][] _blockArray; // 8B
+    byte[][] _encryptedBlockArray; // 64B
     private byte[] _output;
     BigInteger gValue;
     BigInteger aValue;
     BigInteger hValue;
     BigInteger pValue;
-
-    BigInteger c11, c22;
 
     public TMP_Text path;
     public TMP_InputField G;
@@ -33,26 +33,12 @@ public class ElGamal : MonoBehaviour
         pValue = GenerateRandomBigPrime(32);
         gValue = RandomBigIntInRange(2, pValue - 2);
         aValue = RandomBigIntInRange(2, pValue - 2);
-        hValue = ModularPow(gValue, aValue, pValue);
+        hValue = BigInteger.ModPow(gValue, aValue, pValue);
 
         G.text = gValue.ToString();
         H.text = hValue.ToString();
         A.text = aValue.ToString();
         P.text = pValue.ToString();
-
-        for (int i = 0; i < 50; i++)
-        {
-            byte[] randomNumber = new byte[8];
-
-            using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
-            {
-                rng.GetBytes(randomNumber);
-            }
-
-            SingleBlockEncrypting(randomNumber);
-            SingleBlockDecrypting(); 
-        }
-        
     }
 
     BigInteger RandomBigIntInRange(BigInteger a, BigInteger b)
@@ -97,23 +83,6 @@ public class ElGamal : MonoBehaviour
         return candidate;
     }
 
-    BigInteger ModularPow(BigInteger a, BigInteger exp, BigInteger mod)
-    {
-        BigInteger result = 1;
-        while (exp > 0)
-        {
-            if (exp % 2 == 1)
-            {
-                result = (result * a) % mod;
-            }
-
-            a = (a * a) % mod;
-            exp /= 2;
-        }
-
-        return result;
-    }
-
     bool IsPrime(BigInteger n, int certainty)
     {
         if (n <= 1)
@@ -150,7 +119,7 @@ public class ElGamal : MonoBehaviour
                 a = new BigInteger(random.Next()) % (n - 3) + 2;
             } while (a >= n - 2);
 
-            BigInteger x = ModularPow(a, d, n);
+            BigInteger x = BigInteger.ModPow(a, d, n);
 
             if (x == 1 || x == n - 1)
             {
@@ -209,16 +178,16 @@ public class ElGamal : MonoBehaviour
         x = y1;
         y = x1 - (a / b) * y1;
     }
-    
+
     BigInteger InvModDecryption(BigInteger x, BigInteger a, BigInteger n, BigInteger b)
     {
         BigInteger a_to_n_mod_b = BigInteger.ModPow(a, n, b);
         BigInteger inverse = ModInverse(a_to_n_mod_b, b);
         BigInteger result = (x * inverse) % b;
-    
+
         return result;
     }
-    
+
     public void Encrypt()
     {
         /*if (key1Field.text.Length == 0)
@@ -238,10 +207,13 @@ public class ElGamal : MonoBehaviour
         exampleKey2 = key2Field.text;
         exampleKey3 = key3Field.text;*/
 
+        _encryptedBlockArray = new byte[_blockArray.Length][];
         for (int i = 0; i < _blockArray.Length; i++)
         {
-            _blockArray[i] = SingleBlockEncrypting(_blockArray[i]);
+            _encryptedBlockArray[i] = SingleBlockEncrypting(_blockArray[i]);
         }
+
+        _fileBytes = ConcatenateByteArrays(_encryptedBlockArray);
     }
 
     public void Decrypt()
@@ -258,73 +230,53 @@ public class ElGamal : MonoBehaviour
         key1Field.text = key1Field.text.PadRight(64, '1');
         key2Field.text = key2Field.text.PadRight(64, '2');
         key3Field.text = key3Field.text.PadRight(64, '3');*/
-    }
 
-    byte[] PadBigIntegerToFixedLengthByteArray(BigInteger value, int length)
-    {
-        byte[] bytes = value.ToByteArray();
-        byte[] result = new byte[length];
-
-        for (int i = 0; i < bytes.Length && i < length; i++)
+        byte[] b = new byte[64];
+        for (int i = 0; i < _blockArray.Length; i++)
         {
-            result[i] = bytes[i];
+            b = SingleBlockDecrypting(_encryptedBlockArray[i]);
+            Array.Copy(b, 0, _blockArray[i], 0, 8);
         }
 
-        return result;
-    }
-    
-    public static byte[] PadToBlockSize(byte[] input, int blockSize)
-    {
-        int paddingSize = blockSize - (input.Length % blockSize);
-        byte[] padding = new byte[paddingSize];
-        byte[] result = new byte[input.Length + paddingSize];
-
-        Array.Copy(input, 0, result, 0, input.Length);
-        Array.Copy(padding, 0, result, input.Length, paddingSize);
-
-        return result;
+        _fileBytes = ConcatenateByteArrays(_blockArray);
     }
 
-    public static byte[] UnpadFromBlockSize(byte[] input)
-    {
-        int lastNonZeroIndex = input.Length - 1;
-
-        while (input[lastNonZeroIndex] == 0 && lastNonZeroIndex > 0)
-        {
-            lastNonZeroIndex--;
-        }
-
-        byte[] result = new byte[lastNonZeroIndex + 1];
-        Array.Copy(input, 0, result, 0, lastNonZeroIndex + 1);
-
-        return result;
-    }
-    
     byte[] SingleBlockEncrypting(byte[] block)
     {
         BigInteger m = ConvertBlockToNumber(block);
         BigInteger r = RandomBigIntInRange(1, pValue);
         BigInteger c1, c2;
 
-        c1 = ModularPow(gValue, r, pValue);
-        c2 = ModularPow(hValue, r, pValue);
+        c1 = BigInteger.ModPow(gValue, r, pValue);
+        c2 = BigInteger.ModPow(hValue, r, pValue);
         c2 = (m * c2) % pValue;
-        
-        c11 = c1;
-        c22 = c2;
-        
-        //Debug.Log(result.Length);
-        return Array.Empty<byte>();
+        byte[] b1 = ConvertNumberToBlock(c1, 32);
+        byte[] b2 = ConvertNumberToBlock(c2, 32);
+
+        byte[] outputBlock = new byte[64];
+
+        Array.Copy(b1, 0, outputBlock, 0, 32);
+        Array.Copy(b2, 0, outputBlock, 32, 32);
+
+        return outputBlock;
     }
 
-    byte[] SingleBlockDecrypting()
+    byte[] SingleBlockDecrypting(byte[] block)
     {
-        BigInteger result = InvModDecryption(c22, c11, aValue, pValue);
-        
-        
-        
-        
-        return Array.Empty<byte>();
+        BigInteger c1, c2;
+        byte[] firstHalf = new byte[32];
+        byte[] secondHalf = new byte[32];
+
+        Array.Copy(block, 0, firstHalf, 0, 32);
+        Array.Copy(block, 32, secondHalf, 0, 32);
+
+        c1 = ConvertBlockToNumber(firstHalf);
+        c2 = ConvertBlockToNumber(secondHalf);
+
+        BigInteger result = InvModDecryption(c2, c1, aValue, pValue);
+
+        byte[] outputBlock = ConvertNumberToBlock(result, 64);
+        return outputBlock;
     }
 
     BigInteger ConvertBlockToNumber(byte[] block)
@@ -357,114 +309,7 @@ public class ElGamal : MonoBehaviour
 
         return clipped;
     }
-
-
-    BitArray LeftShift(BitArray b, int count)
-    {
-        // Beware! Least significant bits are to the right, so our left shift is actually C#'s right shift XD
-        // BitArray.Set() is used for wrapping bits so we don't lose them.
-        bool msb;
-        for (int i = 0; i < count; i++)
-        {
-            msb = b.Get(0);
-            b = new BitArray(b.RightShift(1));
-            b.Set(b.Length - 1, msb);
-        }
-
-        return b;
-    }
-
-    BitArray RightShift(BitArray b, int count)
-    {
-        // Beware! Least significant bits are to the right, so our left shift is actually C#'s right shift XD
-        // BitArray.Set() is used for wrapping bits so we don't lose them.
-        bool lsb;
-        for (int i = 0; i < count; i++)
-        {
-            lsb = b.Get(b.Length - 1);
-            b = new BitArray(b.LeftShift(1));
-            b.Set(0, lsb);
-        }
-
-        return b;
-    }
-
-    BitArray ConcatenateBitArrays(BitArray bits1, BitArray bits2)
-    {
-        // Beware! Least significant bits are to the right, so our left shift is actually C#'s right shift XD
-        // BitArray.Set() is used for wrapping bits so we don't lose them.
-        BitArray concatenatedBits = new BitArray(bits1.Length + bits2.Length);
-        for (int i = 0; i < bits1.Count; i++)
-            concatenatedBits[i] = bits1[i];
-        for (int i = 0; i < bits2.Count; i++)
-            concatenatedBits[bits2.Count + i] = bits2[i];
-        return concatenatedBits;
-    }
-
-    int BitArrayToInt(BitArray b)
-    {
-        int inInt = 0;
-        for (int i = 0; i < b.Length; i++)
-        {
-            inInt <<= 1;
-            if (b[i])
-            {
-                inInt |= 1;
-            }
-        }
-
-        return inInt;
-    }
-
-    BitArray IntToBitArray(int value, int bitArrayLength)
-    {
-        string binaryString = Convert.ToString(value, 2);
-
-        if (binaryString.Length < bitArrayLength)
-        {
-            binaryString = binaryString.PadLeft(bitArrayLength, '0');
-        }
-
-        BitArray bitArray = new BitArray(bitArrayLength);
-        for (int i = 0; i < bitArrayLength; i++)
-        {
-            if (binaryString[i] == '1')
-            {
-                bitArray.Set(i, true);
-            }
-        }
-
-        return bitArray;
-    }
-
-    BitArray XOR(BitArray A, BitArray B)
-    {
-        BitArray result = new BitArray(A.Length);
-        for (int i = 0; i < A.Length; i++)
-        {
-            result.Set(i, A[i] ^ B[i]);
-        }
-
-        return result;
-    }
-
-    BitArray BytesToBitArray(byte[] bytes)
-    {
-        BitArray bitArray = new BitArray(bytes);
-        for (int i = 0; i < bitArray.Length; i += 8)
-        {
-            for (int j = 0; j < 4; j++)
-                (bitArray[i + j], bitArray[i + 7 - j]) = (bitArray[i + 7 - j], bitArray[i + j]);
-        }
-
-        return bitArray;
-    }
-
-    byte[] ConvertStringToBytes(string s)
-    {
-        return Encoding.ASCII.GetBytes(s);
-    }
-
+    
     public void OpenFile()
     {
         var bp = new BrowserProperties
@@ -476,7 +321,7 @@ public class ElGamal : MonoBehaviour
         new FileBrowser().OpenFileBrowser(bp, path =>
         {
             _fileBytes = File.ReadAllBytes(path);
-            _blockArray = SplitTo64BitBlocks(_fileBytes);
+            _blockArray = SplitTo8ByteBlocks(_fileBytes);
             this.path.text = $"Wybrany plik: {path}";
         });
     }
@@ -496,9 +341,9 @@ public class ElGamal : MonoBehaviour
         });
     }
 
-    byte[][] SplitTo64BitBlocks(byte[] data)
+    byte[][] SplitTo8ByteBlocks(byte[] data)
     {
-        // Calculate the number of 64-bit blocks needed
+        // Calculate the number of 8-byte blocks needed
         int numBlocks = (data.Length + 7) / 8;
 
         // Create a 2D array to hold the blocks
@@ -522,6 +367,7 @@ public class ElGamal : MonoBehaviour
         return blocks;
     }
 
+
     public byte[] ConcatenateByteArrays(byte[][] arrays)
     {
         int totalLength = 0;
@@ -540,8 +386,7 @@ public class ElGamal : MonoBehaviour
 
         return result;
     }
-
-
+    
     void DebugByteShowBits(byte[] bytes)
     {
         string s = "";
@@ -553,19 +398,6 @@ public class ElGamal : MonoBehaviour
             }
 
             s += " ";
-        }
-
-        Debug.Log(s);
-    }
-
-    void DebugBits(BitArray bits, int space)
-    {
-        string s = "";
-        for (int i = 0; i < bits.Length; i++)
-        {
-            s += bits[i] ? "1" : "0";
-            if ((i + 1) % space == 0)
-                s += " ";
         }
 
         Debug.Log(s);
