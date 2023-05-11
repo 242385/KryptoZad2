@@ -15,7 +15,8 @@ public class ElGamal : MonoBehaviour
     byte[] _fileBytes;
     byte[][] _blockArray; // 8B
     byte[][] _encryptedBlockArray; // 64B
-    private byte[] _output;
+    uint _encryptedSize;
+    byte[] _output;
     BigInteger gValue;
     BigInteger aValue;
     BigInteger hValue;
@@ -27,7 +28,7 @@ public class ElGamal : MonoBehaviour
     public TMP_InputField A;
     public TMP_InputField P;
 
-    void Start()
+    void GenerateRandomData()
     {
         // We don't guarantee G number to be a generator of the multiplicative group
         pValue = GenerateRandomBigPrime(32);
@@ -188,24 +189,20 @@ public class ElGamal : MonoBehaviour
         return result;
     }
 
+    void SetKeyValuesFromUI()
+    {
+        gValue = BigInteger.Parse(G.text);
+        aValue = BigInteger.Parse(A.text);
+        pValue = BigInteger.Parse(P.text);
+        hValue = BigInteger.ModPow(gValue, aValue, pValue);
+    }
+
     public void Encrypt()
     {
-        /*if (key1Field.text.Length == 0)
-            key1Field.text = exampleKey1;
-        
-        if (key2Field.text.Length == 0)
-            key2Field.text = exampleKey2;
-        
-        if (key3Field.text.Length == 0)
-            key3Field.text = exampleKey3;
-
-        key1Field.text = key1Field.text.PadRight(64, '0');
-        key2Field.text = key2Field.text.PadRight(64, '0');
-        key3Field.text = key3Field.text.PadRight(64, '0');
-
-        exampleKey1 = key1Field.text;
-        exampleKey2 = key2Field.text;
-        exampleKey3 = key3Field.text;*/
+        if (G.text.Length == 0 || A.text.Length == 0 || P.text.Length == 0)
+            GenerateRandomData();
+        else
+            SetKeyValuesFromUI();
 
         _encryptedBlockArray = new byte[_blockArray.Length][];
         for (int i = 0; i < _blockArray.Length; i++)
@@ -213,26 +210,22 @@ public class ElGamal : MonoBehaviour
             _encryptedBlockArray[i] = SingleBlockEncrypting(_blockArray[i]);
         }
 
+        _encryptedSize = Convert.ToUInt32(_blockArray.Length);
         _fileBytes = ConcatenateByteArrays(_encryptedBlockArray);
     }
 
     public void Decrypt()
     {
-        /*if (key1Field.text.Length == 0)
-            key1Field.text = exampleKey1;
-        
-        if (key2Field.text.Length == 0)
-            key2Field.text = exampleKey2;
-        
-        if (key3Field.text.Length == 0)
-            key3Field.text = exampleKey3;
+        if (G.text.Length == 0 || A.text.Length == 0 || P.text.Length == 0)
+            GenerateRandomData();
+        else
+            SetKeyValuesFromUI();
 
-        key1Field.text = key1Field.text.PadRight(64, '1');
-        key2Field.text = key2Field.text.PadRight(64, '2');
-        key3Field.text = key3Field.text.PadRight(64, '3');*/
-
+        if (_encryptedSize == 0)
+            _encryptedSize = Convert.ToUInt32(_blockArray.Length / 8);
+        
         byte[] b = new byte[64];
-        for (int i = 0; i < _blockArray.Length; i++)
+        for (int i = 0; i < _encryptedSize; i++)
         {
             b = SingleBlockDecrypting(_encryptedBlockArray[i]);
             Array.Copy(b, 0, _blockArray[i], 0, 8);
@@ -309,7 +302,7 @@ public class ElGamal : MonoBehaviour
 
         return clipped;
     }
-    
+
     public void OpenFile()
     {
         var bp = new BrowserProperties
@@ -386,7 +379,7 @@ public class ElGamal : MonoBehaviour
 
         return result;
     }
-    
+
     void DebugByteShowBits(byte[] bytes)
     {
         string s = "";
